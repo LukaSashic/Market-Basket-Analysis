@@ -1,0 +1,206 @@
+---
+title: "Data Quality Assessment"
+author: "Sasa Lukic"
+date: "5 11 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+# Load libraries
+
+library(arules)
+library(arulesViz)
+library(dplyr)
+library(tidyverse)
+library(plyr)
+library(RColorBrewer)
+
+```
+
+```{r}
+# Load data
+
+line_item <- read.csv("line_item.csv")
+orders <- read.csv("orders.csv")
+products <- read.csv("products.csv")
+
+```
+
+
+```{r}
+
+# Check for missing values
+
+sum(is.na(c(line_item, orders, products)))
+
+```
+
+# Summarise data
+
+```{r}
+
+glimpse(c(line_item, orders, products))
+
+summary(c(line_item, orders, products))
+
+str(c(line_item, orders, products))
+
+```
+
+
+# Joining and filtering data
+
+```{r}
+
+complete <- inner_join(line_item, orders, by="id_order")
+
+complete <- inner_join(complete, products, by="sku")
+
+complete <- filter(complete, state=="Completed")
+```
+
+## grouping by id_order
+## calculating difference in the total amount paid
+
+```{r}
+
+difference <- line_item %>% 
+  select(id_order, unit_price, product_quantity) %>% 
+  group_by(id_order) %>%
+  mutate(order_sum=unit_price * product_quantity)
+
+```
+
+# Explore diference between order sum and total paid
+
+```{r}
+
+difference_paid <- inner_join(difference, orders, by="id_order")
+
+difference_paid <- mutate(difference_paid, total_diff = total_paid - order_sum)
+
+difference_paid <- mutate(difference_paid, ratio=round((total_diff/total_paid) * 100),2)
+
+difference_paid <- filter(difference_paid, ratio<20)
+
+difference_paid <- filter(difference_paid, ratio>-20)
+
+```
+
+# Filter data from complete based on exploration
+
+
+```{r}
+
+complete <- filter(complete, id_order %in% difference_paid$id_order)
+
+```
+
+# Explore difference between unit price and price
+
+```{r}
+
+difference_price <- select(complete, id_order, unit_price, price)
+
+difference_price <- mutate(difference_price, diff_new = price - unit_price)
+
+difference_price <- mutate(difference_price, diff_ratio = round((diff_new/price) * 100), 2)
+
+difference_price <- filter(difference_price, diff_ratio<20)
+
+difference_price <- filter(difference_price, diff_ratio>-20)
+
+```
+
+# Filter data from complete based on exploration
+
+```{r}
+
+complete <- filter(complete, id_order %in% difference_price$id_order)
+
+```
+
+# Create final table for creating transaction file and write csv
+
+```{r}
+
+complete <- select(complete, id_order, sku)
+
+complete <- ddply(complete,c("id_order"),
+                       function(df1)paste(df1$sku,
+                       collapse = ","))
+
+complete$id_order <- NULL
+```
+
+
+```{r}
+write.csv(complete, 
+          file = "transactions.csv",
+          row.names=FALSE, quote = FALSE)
+```
+
+# Create transactional file
+
+```{r}
+
+tr <- read.transactions(
+  file = "transactions.csv",
+  format = "single",
+  cols = c(1,2),
+  header = TRUE,
+  sep = ",")
+```
+
+# Summary and inspect of tr
+
+```{r}
+
+summary(tr)
+
+```
+
+```{r}
+
+inspect(tr[1:20])
+
+length(tr) # Number of transactions. 
+
+size(tr) # Number of items per transaction 
+
+LIST(tr) # Lists the transactions by conversion (LIST must be capitalized)
+
+itemLabels(tr) # To see the item labels 
+
+```
+
+# Visualize transactions
+
+```{r}
+
+itemFrequencyPlot(tr,topN=20,type="absolute",col=brewer.pal(8,'Pastel2'), main="Absolute Item Frequency Plot")
+
+
+
+```
+
+# Create rules using apriori algorithm
+
+```{r}
+
+association.rules <- apriori(tr, parameter = list(supp=0.001, conf=0.8))
+
+
+```
+
+```{r}
+
+summary(association.rules)
+
+inspect(association.rules[1:10])
+```
