@@ -10,14 +10,14 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 # Load libraries
 
 library(arules)
 library(arulesViz)
+library(plyr)
 library(dplyr)
 library(tidyverse)
-library(plyr)
 library(RColorBrewer)
 
 ```
@@ -55,7 +55,7 @@ str(c(line_item, orders, products))
 
 # Joining and filtering data
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 
 complete <- inner_join(line_item, orders, by="id_order")
 
@@ -127,13 +127,34 @@ complete <- filter(complete, id_order %in% difference_price$id_order)
 
 # Create final table for creating transaction file and write csv
 
+
 ```{r}
 
-complete <- select(complete, id_order, sku)
+
+
+
+complete <- complete %>% 
+  mutate(brand_cat = paste(brand, manual_categories, sep = "_"))
+
+
+complete$id_order <- as.factor(complete$id_order)
+
+complete$brand_cat <- as.factor(complete$brand_cat)
+
+class(complete$id_order)
+class(complete$brand_cat)
+
+complete <- select(complete, id_order, brand_cat)
+
+
+```
+
+```{r}
 
 complete <- ddply(complete,c("id_order"),
-                       function(df1)paste(df1$sku,
+                       function(df1)paste(df1$brand_cat,
                        collapse = ","))
+
 
 complete$id_order <- NULL
 ```
@@ -142,7 +163,9 @@ complete$id_order <- NULL
 ```{r}
 write.csv(complete, 
           file = "transactions.csv",
-          row.names=FALSE, quote = FALSE)
+          row.names=FALSE, quote = T)
+
+
 ```
 
 # Create transactional file
@@ -153,7 +176,7 @@ tr <- read.transactions(
   file = "transactions.csv",
   format = "single",
   cols = c(1,2),
-  header = TRUE,
+  header = T,
   sep = ",")
 ```
 
@@ -161,15 +184,32 @@ tr <- read.transactions(
 
 ```{r}
 
-summary(tr)
+
+cat("Number of baskets:", length(tr))
 
 ```
 
 ```{r}
 
-inspect(tr[1:20])
+cat("Number of unique items:", sum(size(tr)))
 
-length(tr) # Number of transactions. 
+
+```
+
+```{r}
+
+summary(tr)
+
+```
+
+```{r eval=FALSE, include=FALSE}
+
+inspect(tr[1:10])
+
+
+```
+
+```{r message=FALSE, warning=FALSE}
 
 size(tr) # Number of items per transaction 
 
@@ -193,7 +233,15 @@ itemFrequencyPlot(tr,topN=20,type="absolute",col=brewer.pal(8,'Pastel2'), main="
 
 ```{r}
 
-association.rules <- apriori(tr, parameter = list(supp=0.001, conf=0.8))
+association.rules <- apriori(tr, parameter = list(supp=0.05, conf=0.8, minlen=2, maxlen=7))
+association.rules <- sort(association.rules, by='confidence', decreasing = TRUE)
+
+
+```
+
+```{r}
+
+is.significant(association.rules, tr)
 
 
 ```
@@ -202,5 +250,22 @@ association.rules <- apriori(tr, parameter = list(supp=0.001, conf=0.8))
 
 summary(association.rules)
 
-inspect(association.rules[1:10])
 ```
+
+```{r}
+
+inspect(association.rules[1:10])
+
+```
+```{r}
+topRules <- association.rules[1:10]
+inspect(topRules[1:5])
+
+```
+
+```{r}
+plot(topRules, method = "graph")
+
+
+```
+
